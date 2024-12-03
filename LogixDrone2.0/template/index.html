@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>LogixDrone 2.2 - Sistema de Inventário</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            font-family: 'Arial', sans-serif;
+            background-color: #f4f4f4;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            background-color: white;
+            border-radius: 12px;
+            box-shadow: 0 6px 12px rgba(0,0,0,0.1);
+            width: 100%;
+            max-width: 1000px;
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 20px;
+            padding: 20px;
+        }
+        .system-title {
+            grid-column: 1 / -1;
+            background-color: #2196F3;
+            color: white;
+            text-align: center;
+            padding: 15px;
+            font-size: 24px;
+            font-weight: bold;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .video-section {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        .video-stream {
+            position: relative;
+            width: 100%;
+            background-color: #000;
+            border-radius: 8px;
+            overflow: hidden;
+            aspect-ratio: 16/9;
+        }
+        .system-status {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background-color: rgba(0,0,0,0.7);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 5px;
+            z-index: 10;
+            font-size: 14px;
+            max-width: calc(100% - 20px);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .video-stream img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        .actions {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+        }
+        .actions button {
+            padding: 10px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: opacity 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+            font-size: 14px;
+        }
+        .actions button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        .qr-codes, .logs {
+            background-color: #f9f9f9;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 15px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .qr-codes h3, .logs h3 {
+            margin-bottom: 10px;
+            color: #333;
+            border-bottom: 2px solid #e0e0e0;
+            padding-bottom: 5px;
+        }
+        #qrCodesList, #systemLogs {
+            list-style-type: none;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        #qrCodesList li, #systemLogs li {
+            background-color: #f0f0f0;
+            padding: 5px 8px;
+            border-radius: 3px;
+            font-size: 12px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+        .stats div {
+            background-color: #f9f9f9;
+            border-radius: 5px;
+            padding: 10px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="system-title">
+            LogixDrone 2.2 - Sistema de Inventário
+        </div>
+
+        <div class="video-section">
+            <div class="video-stream">
+                <div id="systemStatus" class="system-status">
+                    Aguardando conexão...
+                </div>
+                <img id="videoStream" src="/video_feed" alt="Stream de Vídeo">
+            </div>
+
+            <div class="actions">
+                <button onclick="loadImages()" style="background-color: #4CAF50; color: white;">
+                    ▶️ Carregar Imagens
+                </button>
+                <button id="startInventoryBtn" onclick="startInventory()" style="background-color: #2196F3; color: white;" disabled>
+                    ⏹️ Iniciar Inventário
+                </button>
+                <button onclick="stopInventory()" style="background-color: #f44336; color: white;">
+                    🛑 Parar Contagem
+                </button>
+                <button onclick="clearLogs()" style="background-color: #9C27B0; color: white;">
+                    🗑️ Limpar Logs
+                </button>
+            </div>
+        </div>
+
+        <div class="sidebar">
+            <div class="stats">
+                <div>
+                    <strong>Total QR Codes</strong>
+                    <p id="totalQRCodes">0</p>
+                </div>
+                <div>
+                    <strong>Produtos Únicos</strong>
+                    <p id="uniqueProducts">0</p>
+                </div>
+            </div>
+
+            <div class="qr-codes">
+                <h3>QR Codes Detectados</h3>
+                <ul id="qrCodesList"></ul>
+            </div>
+
+            <div class="logs">
+                <h3>Logs do Sistema</h3>
+                <ul id="systemLogs"></ul>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function updateSystemStatus() {
+            fetch('/get_rtmp_status')
+                .then(response => response.json())
+                .then(data => {
+                    const statusElement = document.getElementById('systemStatus');
+                    const startButton = document.getElementById('startInventoryBtn');
+
+                    let statusMessage = 'Aguardando conexão...';
+                    let statusColor = 'white';
+
+                    if (data.publisher_connected && !data.subscriber_connected) {
+                        statusMessage = 'Publisher conectado. Aguardando Subscriber...';
+                        statusColor = 'yellow';
+                    } else if (data.publisher_connected && data.subscriber_connected) {
+                        statusMessage = 'Sistema pronto! Stream disponível.';
+                        statusColor = 'green';
+                        startButton.disabled = false;
+                    }
+
+                    statusElement.textContent = statusMessage;
+                    statusElement.style.color = statusColor;
+                })
+                .catch(error => {
+                    console.error('Erro ao buscar status:', error);
+                });
+        }
+
+        function loadImages() {
+            fetch('/load_images', { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    updateQRCodes();
+                    alert(data.message);
+                });
+        }
+
+        function startInventory() {
+            fetch('/start_inventory', { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        alert('Inventário iniciado com sucesso!');
+                        updateQRCodes();
+                    } else {
+                        alert(data.message);
+                    }
+                });
+        }
+
+        function stopInventory() {
+            fetch('/stop_inventory', { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+				            if (data.success) {
+                // Limpa lista de QR Codes
+                const qrList = document.getElementById('qrCodesList');
+                qrList.innerHTML = '';
+
+                // Reseta contadores
+                document.getElementById('totalQRCodes').textContent = '0';
+                document.getElementById('uniqueProducts').textContent = '0';
+
+                // Mostra mensagem de sucesso
+                alert(data.message);
+
+                // Atualiza status do sistema
+                const statusElement = document.getElementById('systemStatus');
+                statusElement.textContent = 'Inventário parado';
+                statusElement.style.color = 'red';
+
+                // Desabilita botão de iniciar
+                document.getElementById('startInventoryBtn').disabled = true;
+            } else {
+                // Mostra erro
+                alert(data.message);
+            }
+        })
+        .catch(error => {
+            console.error('Erro ao parar inventário:', error);
+            alert('Erro ao parar inventário. Verifique a conexão.');
+			});
+}
+                    alert('Inventário parado');
+                    updateQRCodes();
+                });
+        }
+
+        function updateQRCodes() {
+            fetch('/get_qr_codes')
+                .then(response => response.json())
+                .then(data => {
+                    const qrList = document.getElementById('qrCodesList');
+                    const totalQRCodes = document.getElementById('totalQRCodes');
+                    const uniqueProducts = document.getElementById('uniqueProducts');
+
+                    qrList.innerHTML = '';
+                    data.qr_codes.forEach(code => {
+                        const li = document.createElement('li');
+                        li.textContent = code;
+                        qrList.appendChild(li);
+                    });
+
+                    totalQRCodes.textContent = data.total_qr_codes;
+                    uniqueProducts.textContent = data.unique_products;
+                });
+        }
+
+        function updateSystemLogs() {
+            fetch('/get_logs')
+                .then(response => response.json())
+                .then(data => {
+                    const logsList = document.getElementById('systemLogs');
+                    logsList.innerHTML = '';
+                    data.logs.slice(-10).forEach(log => {
+                        const li = document.createElement('li');
+                        li.textContent = log;
+                        logsList.appendChild(li);
+                    });
+                });
+        }
+
+        function clearLogs() {
+            document.getElementById('systemLogs').innerHTML = '';
+        }
+
+        // Atualiza status, QR Codes e logs periodicamente
+        setInterval(updateSystemStatus, 2000);
+        setInterval(updateQRCodes, 2000);
+        setInterval(updateSystemLogs, 2000);
+
+        // Chama funções iniciais
+        updateSystemStatus();
+        updateQRCodes();
+        updateSystemLogs();
+    </script>
+</body>
+</html>
